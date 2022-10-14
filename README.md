@@ -84,7 +84,7 @@ or
 
 ```
 cd vault/plugins
-wget https://github.com/bstraehle/vault-plugin-secrets-apigee/releases/download/v1.0.9/vault-plugin-secrets-apigee-linux-amd64
+wget https://github.com/bstraehle/vault-plugin-secrets-apigee/releases/download/v1.1.1/vault-plugin-secrets-apigee-linux-amd64
 mv vault-plugin-secrets-apigee-linux-amd64 vault-plugin-secrets-apigee
 chmod 700 vault-plugin-secrets-apigee
 ```
