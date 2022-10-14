@@ -28,13 +28,13 @@ Apigee apps contain a consumer key and consumer secret (credentials), which are 
 
 ## 2. Examples
 
-Vault API and Apigee X
+Linux, Vault API, and Apigee X
 
-![Apigee X and Linux](https://github.com/bstraehle/vault-plugin-secrets-apigee/blob/master/example-apigee-x.png)
+![Apigee X](https://github.com/bstraehle/vault-plugin-secrets-apigee/blob/master/example-apigee-x.png)
 
-Vault CLI and Apigee Edge for Private Cloud
+Windows, Vault CLI, and Apigee Edge for Private Cloud
 
-![Apigee Edge and Windows](https://github.com/bstraehle/vault-plugin-secrets-apigee/blob/master/example-apigee-edge.png)
+![Apigee Edge](https://github.com/bstraehle/vault-plugin-secrets-apigee/blob/master/example-apigee-edge.png)
 
 ## 3. Prerequisites
 
