@@ -8,11 +8,27 @@ Apigee apps contain a consumer key and consumer secret (credentials), which are 
 
 Credentials can be generated via the Vault CLI and API.
 
-## Use Case
+## Table of Contents
+
+1. [Use Case](#1-use-case)
+2. [Examples](#2-examples)
+3. [Prerequisites](#3-prerequisites)
+4. [Configure Environment](#4-configure-environment)
+5. [Configure Access](#5-configure-access)
+6. [Build / Test or Get Binary](#6-build--test-or-get-binary)
+7. [Register Plugin](#7-register-plugin)
+8. [Enable Secrets Engine](#8-enable-secrets-engine)
+9. [Write Config](#9-write-config)
+10. [Write Role](#10-write-role)
+11. [Usage: Vault CLI](#11-usage-vault-cli)
+12. [Usage: Vault API](#12-usage-vault-api)
+13. [References](#13-references)
+
+## 1. Use Case
 
 ![HashiCorp Vault custom secrets engine for Apigee](https://github.com/bstraehle/vault-plugin-secrets-apigee/blob/master/sequence-diagram.png)
 
-## Examples
+## 2. Examples
 
 Vault API and Apigee X
 
@@ -22,7 +38,7 @@ Vault CLI and Apigee Edge for Private Cloud
 
 ![Apigee Edge and Windows](https://github.com/bstraehle/vault-plugin-secrets-apigee/blob/master/example-apigee-edge.png)
 
-## Prerequisites
+## 3. Prerequisites
 
 - [Git](https://git-scm.com/downloads) (Optional)
 - [Go](https://go.dev/dl/) (Optional)
@@ -30,7 +46,7 @@ Vault CLI and Apigee Edge for Private Cloud
 - [Apigee X](https://cloud.google.com/apigee/docs/) and [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or
 - [Apigee Edge](https://docs.apigee.com/)
 
-## Configure Environment
+## 4. Configure Environment
 
 ```
 export APIGEE_HOST=<APIGEE_HOST>
@@ -40,7 +56,7 @@ export APIGEE_APP_NAME=<APIGEE_APP_NAME>
 export APIGEE_API_PRODUCTS=[\"<APIGEE_API_PRODUCT>\"]
 ```
 
-## Configure Access
+## 5. Configure Access
 
 ```
 gcloud auth login
@@ -54,7 +70,7 @@ export APIGEE_USERNAME=<APIGEE_USERNAME>
 export APIGEE_PASSWORD=<APIGEE_PASSWORD>
 ```
 
-## Build / Test or Get Binary
+## 6. Build / Test or Get Binary
 
 ```
 git clone https://github.com/bstraehle/vault-plugin-secrets-apigee.git
@@ -73,7 +89,7 @@ mv vault-plugin-secrets-apigee-linux-amd64 vault-plugin-secrets-apigee
 chmod 700 vault-plugin-secrets-apigee
 ```
 
-## Register Plugin
+## 7. Register Plugin
 
 Add plugin directory to server configuration
 
@@ -121,7 +137,7 @@ vault plugin register -sha256=$SHA256 secret vault-plugin-secrets-apigee
 Success! Registered plugin: vault-plugin-secrets-apigee
 ```
 
-## Secrets Engine
+## 8. Enable Secrets Engine
 
 Enable secrets engine
 
@@ -141,7 +157,7 @@ vault secrets disable apigee
 Success! Disabled the secrets engine (if it existed) at: apigee/
 ```
 
-## Config
+## 9. Write Config
 
 Write config
 
@@ -172,7 +188,7 @@ vault delete apigee/config
 Success! Data deleted (if it existed) at: apigee/config
 ```
 
-## Role
+## 10. Write Role
 
 Write role
 
@@ -212,7 +228,7 @@ vault delete apigee/roles/test
 Success! Data deleted (if it existed) at: apigee/roles/test
 ```
 
-## Usage: Vault CLI
+## 11. Usage: Vault CLI
 
 Read creds
 
@@ -243,7 +259,7 @@ vault lease revoke <LEASE_ID>
 All revocation operations queued successfully!
 ```
 
-## Usage: Vault API
+## 12. Usage: Vault API
 
 Read creds
 
@@ -283,7 +299,7 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 }
 ```
 
-## References
+## 13. References
 
 - https://github.com/bstraehle/apigee-client-go
 - https://developer.hashicorp.com/vault/docs/plugins/plugin-portal
