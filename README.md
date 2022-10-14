@@ -13,8 +13,8 @@ Credentials can be generated via the Vault CLI and API.
 1. [Use Case](#1-use-case)
 2. [Examples](#2-examples)
 3. [Prerequisites](#3-prerequisites)
-4. [Configure Environment](#4-configure-environment)
-5. [Configure Access](#5-configure-access)
+4. [Configure Access](#4-configure-access)
+5. [Configure Environment](#5-configure-environment)
 6. [Build / Test or Get Binary](#6-build--test-or-get-binary)
 7. [Register Plugin](#7-register-plugin)
 8. [Enable Secrets Engine](#8-enable-secrets-engine)
@@ -46,17 +46,7 @@ Vault CLI and Apigee Edge for Private Cloud
 - [Apigee X](https://cloud.google.com/apigee/docs/) and [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or
 - [Apigee Edge](https://docs.apigee.com/)
 
-## 4. Configure Environment
-
-```
-export APIGEE_HOST=<APIGEE_HOST>
-export APIGEE_ORG_NAME=<APIGEE_ORG_NAME>
-export APIGEE_DEVELOPER_EMAIL=<APIGEE_DEVELOPER_EMAIL>
-export APIGEE_APP_NAME=<APIGEE_APP_NAME>
-export APIGEE_API_PRODUCTS=[\"<APIGEE_API_PRODUCT>\"]
-```
-
-## 5. Configure Access
+## 4. Configure Access
 
 ```
 gcloud auth login
@@ -68,6 +58,16 @@ or
 ```
 export APIGEE_USERNAME=<APIGEE_USERNAME>
 export APIGEE_PASSWORD=<APIGEE_PASSWORD>
+```
+
+## 5. Configure Environment
+
+```
+export APIGEE_HOST=<APIGEE_HOST>
+export APIGEE_ORG_NAME=<APIGEE_ORG_NAME>
+export APIGEE_DEVELOPER_EMAIL=<APIGEE_DEVELOPER_EMAIL>
+export APIGEE_APP_NAME=<APIGEE_APP_NAME>
+export APIGEE_API_PRODUCTS=[\"<APIGEE_API_PRODUCT>\"]
 ```
 
 ## 6. Build / Test or Get Binary
