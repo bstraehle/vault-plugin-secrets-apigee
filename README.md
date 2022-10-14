@@ -15,7 +15,7 @@ Credentials can be generated via the Vault CLI and API.
 3. [Prerequisites](#3-prerequisites)
 4. [Configure Access](#4-configure-access)
 5. [Configure Environment](#5-configure-environment)
-6. [Build / Test or Get Binary](#6-build--test-or-get-binary)
+6. [Build/Test or Get Binary](#6-buildtest-or-get-binary)
 7. [Register Plugin](#7-register-plugin)
 8. [Enable Secrets Engine](#8-enable-secrets-engine)
 9. [Write Config](#9-write-config)
@@ -70,7 +70,7 @@ export APIGEE_APP_NAME=<APIGEE_APP_NAME>
 export APIGEE_API_PRODUCTS=[\"<APIGEE_API_PRODUCT>\"]
 ```
 
-## 6. Build / Test or Get Binary
+## 6. Build/Test or Get Binary
 
 ```
 git clone https://github.com/bstraehle/vault-plugin-secrets-apigee.git
