@@ -20,7 +20,6 @@ Apigee apps contain a consumer key and consumer secret (credentials), which are 
 10. [Write Role](#10-write-role)
 11. [Usage: Vault CLI](#11-usage-vault-cli)
 12. [Usage: Vault API](#12-usage-vault-api)
-13. [References](#13-references)
 
 ## 1. Use Case
 
@@ -297,7 +296,7 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 }
 ```
 
-## 13. References
+## References
 
 - https://github.com/bstraehle/apigee-client-go
 - https://developer.hashicorp.com/vault/docs/plugins/plugin-portal
