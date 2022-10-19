@@ -20,7 +20,7 @@ Apigee apps contain a consumer key and consumer secret (credentials), which are 
 10. [Write Role](#10-write-role)
 11. [Usage: Vault CLI](#11-usage-vault-cli)
 12. [Usage: Vault API](#12-usage-vault-api)
-[References](#references)
+13. [References](#13-references)
 
 ## 1. Use Case
 
@@ -297,10 +297,10 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 }
 ```
 
-## References
+## 13.References
 
+- [Vault Custom Secrets Engine Tutorial](https://developer.hashicorp.com/vault/tutorials/custom-secrets-engine)
 - [Vault Plugin Portal](https://developer.hashicorp.com/vault/docs/v1.11.x/plugins/plugin-portal#community)
-- [Custom Secrets Engines](https://developer.hashicorp.com/vault/tutorials/custom-secrets-engine)
 - [Apigee Client Library](https://github.com/bstraehle/apigee-client-go)
 - [Google Certified Professional API Engineer](https://www.credential.net/92b59db2-d79e-4f61-810c-3e400d32f887#gs.c1xdhh)
 - [HashiCorp Certified Vault Associate](https://www.credly.com/badges/87d28440-b845-4279-b44c-00f1cfdac049)
