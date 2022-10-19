@@ -297,7 +297,7 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 }
 ```
 
-## 13.References
+## 13. References
 
 - [Vault Custom Secrets Engine Tutorial](https://developer.hashicorp.com/vault/tutorials/custom-secrets-engine)
 - [Vault Plugin Portal](https://developer.hashicorp.com/vault/docs/v1.11.x/plugins/plugin-portal#community)
