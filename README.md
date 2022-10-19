@@ -299,8 +299,8 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 
 ## 13. References
 
+- [Vault Plugin Portal (Official/Partner/Community)](https://developer.hashicorp.com/vault/docs/v1.11.x/plugins/plugin-portal#community)
 - [Vault Custom Secrets Engine Tutorial](https://developer.hashicorp.com/vault/tutorials/custom-secrets-engine)
-- [Vault Plugin Portal](https://developer.hashicorp.com/vault/docs/v1.11.x/plugins/plugin-portal#community)
-- [Apigee Client Library](https://github.com/bstraehle/apigee-client-go)
-- [Google Certified Professional API Engineer](https://www.credential.net/92b59db2-d79e-4f61-810c-3e400d32f887#gs.c1xdhh)
-- [HashiCorp Certified Vault Associate](https://www.credly.com/badges/87d28440-b845-4279-b44c-00f1cfdac049)
+- [GitHub: Apigee Client Library](https://github.com/bstraehle/apigee-client-go)
+- [Credential: Google Certified Professional API Engineer](https://www.credential.net/92b59db2-d79e-4f61-810c-3e400d32f887#gs.c1xdhh)
+- [Credential: HashiCorp Certified Vault Associate](https://www.credly.com/badges/87d28440-b845-4279-b44c-00f1cfdac049)
