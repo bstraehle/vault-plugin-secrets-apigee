@@ -2,25 +2,24 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bstraehle/vault-plugin-secrets-apigee.svg)](https://pkg.go.dev/github.com/bstraehle/vault-plugin-secrets-apigee) [![Go Report Card](https://goreportcard.com/badge/github.com/bstraehle/vault-plugin-secrets-apigee)](https://goreportcard.com/report/github.com/bstraehle/vault-plugin-secrets-apigee) [![GitHub release (latest SemVer including pre-releases)](https://img.shields.io/github/v/release/bstraehle/vault-plugin-secrets-apigee?color=red&include_prereleases&sort=semver)](https://github.com/bstraehle/vault-plugin-secrets-apigee/releases)
 
-Apigee helps companies design, secure, and scale application programming interfaces (APIs).
+[Vault](https://www.vaultproject.io/) is a leader in secrets management and secures, stores, and tightly controls access to tokens, passwords, certificates, API keys, and other secrets in modern computing.
 
-Apigee apps contain a consumer key and consumer secret (credentials), which are typically used to obtain an OAuth2 access token for API access. These credentials have an expiry, by default never. For **zero trust security** use cases, instead of apps using static, long-lived credentials, the **Vault Apigee secrets engine** generates dynamic, short-lived credentials, aka **ephemeral credentials**, enabling frequent rotation. For other use cases, the Vault KV secrets engine can be used.
+[Apigee](https://cloud.google.com/blog/products/api-management/apigee-x-google-clouds-more-powerful-api-management-platform) is a leader in API management and helps companies design, secure, and scale application programming interfaces.
+
+Apigee apps contain a consumer key and consumer secret (credentials), which are typically used to obtain an OAuth2 access token for API access. These credentials have an expiry, by default never. For **zero trust security** use cases, instead of apps using static, long-lived credentials, the **Vault Apigee secrets engine** generates dynamic, short-lived credentials, aka **ephemeral credentials**, enabling frequent rotation.
 
 ## Table of Contents
 
 1. [Use Case](#1-use-case)
 2. [Examples](#2-examples)
 3. [Prerequisites](#3-prerequisites)
-4. [Configure Access](#4-configure-access)
-5. [Configure Environment](#5-configure-environment)
-6. [Build/Test or Get Binary](#6-buildtest-or-get-binary)
-7. [Register Plugin](#7-register-plugin)
-8. [Enable Secrets Engine](#8-enable-secrets-engine)
-9. [Write Config](#9-write-config)
-10. [Write Role](#10-write-role)
-11. [Usage: Vault CLI](#11-usage-vault-cli)
-12. [Usage: Vault API](#12-usage-vault-api)
-13. [References](#13-references)
+4. [Build/Test or Get Binary](#4-buildtest-or-get-binary)
+5. [Register Plugin](#5-register-plugin)
+6. [Enable Secrets Engine](#6-enable-secrets-engine)
+7. [Write Config](#7-write-config)
+8. [Write Role](#8-write-role)
+9. [Usage: CLI and API](#9-usage-cli-and-api)
+10. [References](#10-references)
 
 ## 1. Use Case
 
@@ -44,31 +43,7 @@ Windows, Vault CLI, and Apigee Edge for Private Cloud
 - [Apigee X](https://cloud.google.com/apigee/docs/) and [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or
 - [Apigee Edge](https://docs.apigee.com/)
 
-## 4. Configure Access
-
-```
-gcloud auth login
-export APIGEE_OAUTH_TOKEN=$(gcloud auth print-access-token)
-```
-
-or
-
-```
-export APIGEE_USERNAME=<APIGEE_USERNAME>
-export APIGEE_PASSWORD=<APIGEE_PASSWORD>
-```
-
-## 5. Configure Environment
-
-```
-export APIGEE_HOST=<APIGEE_HOST>
-export APIGEE_ORG_NAME=<APIGEE_ORG_NAME>
-export APIGEE_DEVELOPER_EMAIL=<APIGEE_DEVELOPER_EMAIL>
-export APIGEE_APP_NAME=<APIGEE_APP_NAME>
-export APIGEE_API_PRODUCTS=[\"<APIGEE_API_PRODUCT>\"]
-```
-
-## 6. Build/Test or Get Binary
+## 4. Build/Test or Get Binary
 
 ```
 git clone https://github.com/bstraehle/vault-plugin-secrets-apigee.git
@@ -87,7 +62,7 @@ mv vault-plugin-secrets-apigee-linux-amd64 vault-plugin-secrets-apigee
 chmod 700 vault-plugin-secrets-apigee
 ```
 
-## 7. Register Plugin
+## 5. Register Plugin
 
 Add plugin directory to server configuration
 
@@ -135,7 +110,7 @@ vault plugin register -sha256=$SHA256 secret vault-plugin-secrets-apigee
 Success! Registered plugin: vault-plugin-secrets-apigee
 ```
 
-## 8. Enable Secrets Engine
+## 6. Enable Secrets Engine
 
 Enable secrets engine
 
@@ -155,12 +130,36 @@ vault secrets disable apigee
 Success! Disabled the secrets engine (if it existed) at: apigee/
 ```
 
-## 9. Write Config
+## 7. Write Config
 
-Write config
+Configure config: Apigee X (optional)
 
 ```
-vault write apigee/config host=$APIGEE_HOST oauth_token=$APIGEE_OAUTH_TOKEN
+gcloud auth login
+export APIGEE_OAUTH_TOKEN=$(gcloud auth print-access-token)
+```
+
+Configure config: Apigee Edge (optional)
+
+```
+export APIGEE_HOST=<APIGEE_HOST>
+export APIGEE_USERNAME=<APIGEE_USERNAME>
+export APIGEE_PASSWORD=<APIGEE_PASSWORD>
+```
+
+Write config: Apigee X
+
+```
+vault write apigee/config oauth_token=$APIGEE_OAUTH_TOKEN
+```
+```
+Success! Data written to: apigee/config
+```
+
+Write config: Apigee Edge
+
+```
+vault write apigee/config host=$APIGEE_HOST username=$APIGEE_USERNAME password=$APIGEE_PASSWORD
 ```
 ```
 Success! Data written to: apigee/config
@@ -186,7 +185,16 @@ vault delete apigee/config
 Success! Data deleted (if it existed) at: apigee/config
 ```
 
-## 10. Write Role
+## 8. Write Role
+
+Configure role (optional)
+
+```
+export APIGEE_ORG_NAME=<APIGEE_ORG_NAME>
+export APIGEE_DEVELOPER_EMAIL=<APIGEE_DEVELOPER_EMAIL>
+export APIGEE_APP_NAME=<APIGEE_APP_NAME>
+export APIGEE_API_PRODUCTS=[\"<APIGEE_API_PRODUCT>\"]
+```
 
 Write role
 
@@ -226,7 +234,7 @@ vault delete apigee/roles/test
 Success! Data deleted (if it existed) at: apigee/roles/test
 ```
 
-## 11. Usage: Vault CLI
+## 9. Usage: CLI and API
 
 Read creds
 
@@ -256,8 +264,6 @@ vault lease revoke <LEASE_ID>
 ```
 All revocation operations queued successfully!
 ```
-
-## 12. Usage: Vault API
 
 Read creds
 
@@ -297,7 +303,7 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 }
 ```
 
-## 13. References
+## 10. References
 
 - [Vault Plugin Portal (Official/Partner/Community)](https://developer.hashicorp.com/vault/docs/v1.11.x/plugins/plugin-portal#community)
 - [Vault Custom Secrets Engine Tutorial](https://developer.hashicorp.com/vault/tutorials/custom-secrets-engine)
