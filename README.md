@@ -4,7 +4,7 @@
 
 [Vault](https://www.vaultproject.io/) is a leader in secrets management and secures, stores, and tightly controls access to tokens, passwords, certificates, API keys, and other secrets in modern computing.
 
-[Apigee](https://cloud.google.com/blog/products/api-management/apigee-x-google-clouds-more-powerful-api-management-platform) is a leader in API management and helps companies design, secure, and scale application programming interfaces.
+[Apigee](https://cloud.google.com/apigee) is a leader in API management and helps companies design, secure, and scale application programming interfaces.
 
 Apigee apps contain a consumer key and consumer secret (credentials), which are typically used to obtain an OAuth2 access token for API access. These credentials have an expiry, by default never. For **zero trust security** use cases, instead of apps using static, long-lived credentials, the **Vault Apigee secrets engine** generates dynamic, short-lived credentials, aka **ephemeral credentials**, enabling frequent rotation.
 
