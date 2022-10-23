@@ -40,7 +40,7 @@ Windows, Vault CLI, and Apigee Edge for Private Cloud
 - [Go](https://go.dev/dl/) (Optional)
 - [Git](https://git-scm.com/downloads), [cURL](https://curl.se/download.html), [jq](https://stedolan.github.io/jq/download/) (Optional)
 - [HashiCorp Vault](https://www.vaultproject.io/downloads)
-- [Apigee X](https://cloud.google.com/apigee/docs/) and [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or [Google Cloud Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/gcp) or
+- [Apigee X](https://cloud.google.com/apigee/docs/) and either [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or [Google Cloud Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/gcp) or
 - [Apigee Edge](https://docs.apigee.com/)
 
 ## 4. Build/Test or Get Binary
