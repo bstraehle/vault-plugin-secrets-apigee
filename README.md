@@ -40,7 +40,7 @@ Windows, Vault CLI, and Apigee Edge for Private Cloud
 - [Go](https://go.dev/dl/) (Optional)
 - [Git](https://git-scm.com/downloads), [cURL](https://curl.se/download.html), [jq](https://stedolan.github.io/jq/download/) (Optional)
 - [HashiCorp Vault](https://www.vaultproject.io/downloads)
-- [Apigee X](https://cloud.google.com/apigee/docs/) and either [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or [Google Cloud Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/gcp) or
+- [Apigee X](https://cloud.google.com/apigee/docs/) and one of [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or [Google Cloud Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/gcp) or
 - [Apigee Edge](https://docs.apigee.com/)
 
 ## 4. Build/Test or Get Binary
@@ -138,6 +138,8 @@ Configure config: Apigee X (optional)
 gcloud auth login
 export APIGEE_OAUTH_TOKEN=$(gcloud auth print-access-token)
 ```
+
+> Note: Instead of using [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) use [Google Cloud Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/gcp).
 
 Configure config: Apigee Edge (optional)
 
@@ -256,6 +258,8 @@ org_name           <APIGEE_ORG_NAME>
 secret             JvmsfZaajNoqT6Ei7XAYmSTsTA8APSWdu9JxYKtZmEonZ862jKg3ROluxr6Bb710
 ```
 
+> Note: Credentials are NOT stored in Vault and cannot be retrieved again.
+
 Revoke lease (optional)
 
 ```
@@ -290,6 +294,8 @@ curl --header "X-Vault-Token: <VAULT_TOKEN>" http://127.0.0.1:8200/v1/apigee/cre
 	"auth": null
 }
 ```
+
+> Note: Credentials are NOT stored in Vault and cannot be retrieved again.
 
 Revoke lease (optional)
 
