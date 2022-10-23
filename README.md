@@ -66,7 +66,7 @@ chmod 700 vault-plugin-secrets-apigee
 
 Add plugin directory to server configuration
 
-```
+```shell
 cat > vault/server.hcl << EOF
 plugin_directory = "$(pwd)/vault/plugins"
 api_addr         = "http://127.0.0.1:8200"
@@ -90,7 +90,7 @@ vault server -config=vault/server.hcl -log-level=trace
 
 In new terminal, initialize and unseal Vault
 
-```
+```shell
 export VAULT_ADDR='http://127.0.0.1:8200'
 
 vault operator init
@@ -99,7 +99,7 @@ vault operator unseal
 
 Register plugin
 
-```
+```shell
 vault login
 
 SHA256=$(sha256sum vault/plugins/vault-plugin-secrets-apigee | cut -d ' ' -f1)
@@ -134,14 +134,14 @@ Success! Disabled the secrets engine (if it existed) at: apigee/
 
 Configure config: Apigee X (optional)
 
-```
+```shell
 gcloud auth login
 export APIGEE_OAUTH_TOKEN=$(gcloud auth print-access-token)
 ```
 
 Configure config: Apigee Edge (optional)
 
-```
+```shell
 export APIGEE_HOST=<APIGEE_HOST>
 export APIGEE_USERNAME=<APIGEE_USERNAME>
 export APIGEE_PASSWORD=<APIGEE_PASSWORD>
@@ -189,7 +189,7 @@ Success! Data deleted (if it existed) at: apigee/config
 
 Configure role (optional)
 
-```
+```shell
 export APIGEE_ORG_NAME=<APIGEE_ORG_NAME>
 export APIGEE_DEVELOPER_EMAIL=<APIGEE_DEVELOPER_EMAIL>
 export APIGEE_APP_NAME=<APIGEE_APP_NAME>
@@ -267,10 +267,10 @@ All revocation operations queued successfully!
 
 Read creds
 
-```
+```shell
 curl --header "X-Vault-Token: <VAULT_TOKEN>" http://127.0.0.1:8200/v1/apigee/creds/test | jq
 ```
-```
+```json
 {
 	"request_id": "<REQUEST_ID>",
 	"lease_id": "<LEASE_ID>",
@@ -293,11 +293,11 @@ curl --header "X-Vault-Token: <VAULT_TOKEN>" http://127.0.0.1:8200/v1/apigee/cre
 
 Revoke lease (optional)
 
-```
+```shell
 curl --header "X-Vault-Token: <VAULT_TOKEN>" --request POST --data @payload.json \
 http://127.0.0.1:8200/v1/sys/leases/revoke
 ```
-```
+```json
 {
   "lease_id": "<LEASE_ID>"
 }
