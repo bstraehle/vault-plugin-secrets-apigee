@@ -2,9 +2,9 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bstraehle/vault-plugin-secrets-apigee.svg)](https://pkg.go.dev/github.com/bstraehle/vault-plugin-secrets-apigee) [![Go Report Card](https://goreportcard.com/badge/github.com/bstraehle/vault-plugin-secrets-apigee)](https://goreportcard.com/report/github.com/bstraehle/vault-plugin-secrets-apigee) [![GitHub release (latest SemVer including pre-releases)](https://img.shields.io/github/v/release/bstraehle/vault-plugin-secrets-apigee?color=red&include_prereleases&sort=semver)](https://github.com/bstraehle/vault-plugin-secrets-apigee/releases)
 
-[Vault](https://www.vaultproject.io/) is a leader in secrets management and secures, stores, and tightly controls access to tokens, passwords, certificates, API keys, and other secrets in modern computing.
+[Vault](https://www.vaultproject.io/), a leader in secrets management, secures, stores, and tightly controls access to tokens, passwords, certificates, API keys, and other secrets in modern computing.
 
-[Apigee](https://cloud.google.com/apigee) is a leader in API management and helps companies design, secure, and scale application programming interfaces.
+[Apigee](https://cloud.google.com/apigee), a leader in API management, helps companies design, secure, and scale application programming interfaces.
 
 Apigee apps contain a consumer key and consumer secret (credentials), which are typically used to obtain an OAuth2 access token for API access. These credentials have an expiry, by default never. For **zero trust security** use cases, instead of apps using static, long-lived credentials, the **Vault Apigee secrets engine** generates dynamic, short-lived credentials, aka **ephemeral credentials**, enabling frequent rotation.
 
