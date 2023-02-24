@@ -1,0 +1,20 @@
+websequencediagrams.com
+
+App->Vault: Credentials request
+note right of Vault: Vault auth (any method)
+Vault->Vault: Validate
+Vault->Apigee: Credentials request
+Apigee->Apigee: Validate
+Apigee->Vault: Credentials
+Vault->App: Credentials
+App->Apigee: Access token request
+note right of Apigee: Basic auth (ephemeral credentials)
+Apigee->Apigee: Validate
+Apigee->App: Access token
+App->Apigee: Resource request
+note right of Apigee: Bearer auth (access token)
+Apigee->Apigee: Validate
+Apigee->API: Resource request
+API->API: Validate
+API->Apigee: Resource
+Apigee->App: Resource
