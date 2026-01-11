@@ -316,3 +316,5 @@ http://127.0.0.1:8200/v1/sys/leases/revoke
 - [GitHub: Apigee Client Library](https://github.com/bstraehle/apigee-client-go)
 - [Credential: Google Certified Professional API Engineer](https://www.credential.net/92b59db2-d79e-4f61-810c-3e400d32f887#gs.c1xdhh)
 - [Credential: HashiCorp Certified Vault Associate](https://www.credly.com/badges/87d28440-b845-4279-b44c-00f1cfdac049)
+
+<!-- Devin access verification -->
