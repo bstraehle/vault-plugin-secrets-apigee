@@ -1,6 +1,6 @@
 module github.com/bstraehle/vault-plugin-secrets-apigee
 
-go 1.19
+go 1.25
 
 require (
 	github.com/bstraehle/apigee-client-go v1.0.8
