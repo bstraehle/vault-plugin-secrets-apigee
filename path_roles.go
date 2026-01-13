@@ -61,21 +61,22 @@ func pathRoles(b *apigeeBackend) []*framework.Path {
 				},
 			},
 			Operations: map[logical.Operation]framework.OperationHandler{
-				logical.ReadOperation: &framework.PathOperation{
-					Callback: b.pathRolesRead,
+					logical.ReadOperation: &framework.PathOperation{
+						Callback: b.pathRolesRead,
+					},
+					logical.CreateOperation: &framework.PathOperation{
+						Callback: b.pathRolesWrite,
+					},
+					logical.UpdateOperation: &framework.PathOperation{
+						Callback: b.pathRolesWrite,
+					},
+					logical.DeleteOperation: &framework.PathOperation{
+						Callback: b.pathRolesDelete,
+					},
 				},
-				logical.CreateOperation: &framework.PathOperation{
-					Callback: b.pathRolesWrite,
-				},
-				logical.UpdateOperation: &framework.PathOperation{
-					Callback: b.pathRolesWrite,
-				},
-				logical.DeleteOperation: &framework.PathOperation{
-					Callback: b.pathRolesDelete,
-				},
-			},
-			HelpSynopsis:    pathRoleHelpSynopsis,
-			HelpDescription: pathRoleHelpDescription,
+				ExistenceCheck:  b.pathRolesExistenceCheck,
+				HelpSynopsis:    pathRoleHelpSynopsis,
+				HelpDescription: pathRoleHelpDescription,
 		},
 		{
 			Pattern: "roles/?$",
@@ -178,6 +179,16 @@ func (b *apigeeBackend) pathRolesList(ctx context.Context, req *logical.Request,
 	}
 
 	return logical.ListResponse(entries), nil
+}
+
+func (b *apigeeBackend) pathRolesExistenceCheck(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
+	out, err := req.Storage.Get(ctx, req.Path)
+
+	if err != nil {
+		return false, fmt.Errorf("existence check failed: %w", err)
+	}
+
+	return out != nil, nil
 }
 
 func setRole(ctx context.Context, s logical.Storage, name string, apigeeRole *apigeeRole) error {
