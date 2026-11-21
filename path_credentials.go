@@ -2,10 +2,12 @@ package secretsengine
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
 
+	apigee "github.com/bstraehle/apigee-client-go/v2"
 	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/locksutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -14,90 +16,96 @@ func pathCredentials(b *apigeeBackend) *framework.Path {
 		Pattern: "creds/" + framework.GenericNameRegex("name"),
 		Fields: map[string]*framework.FieldSchema{
 			"name": {
-				Type:        framework.TypeLowerCaseString,
-				Description: "Name of the role",
+				Type:        framework.TypeString,
+				Description: "Name of the role.",
 				Required:    true,
 			},
 		},
-		Callbacks: map[logical.Operation]framework.OperationFunc{
-			logical.ReadOperation:   b.pathCredentialsRead,
-			logical.UpdateOperation: b.pathCredentialsRead,
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ReadOperation:   &framework.PathOperation{Callback: b.pathCredentialsRead},
+			logical.UpdateOperation: &framework.PathOperation{Callback: b.pathCredentialsRead},
 		},
-		HelpSynopsis:    pathCredentialsHelpSyn,
-		HelpDescription: pathCredentialsHelpDesc,
+		HelpSynopsis:    pathCredentialsHelpSynopsis,
+		HelpDescription: pathCredentialsHelpDescription,
 	}
 }
 
 func (b *apigeeBackend) pathCredentialsRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	roleName := d.Get("name").(string)
+	name := d.Get("name").(string)
 
-	roleEntry, err := b.getRole(ctx, req.Storage, roleName)
-
+	role, err := getRole(ctx, req.Storage, name)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving role: %w", err)
 	}
-
-	if roleEntry == nil {
-		return nil, errors.New("error retrieving role: role is nil")
+	if role == nil {
+		return logical.ErrorResponse("unknown role: %s", name), nil
 	}
 
-	return b.createCreds(ctx, req, roleEntry)
-}
-
-func (b *apigeeBackend) createCreds(ctx context.Context, req *logical.Request, role *apigeeRole) (*logical.Response, error) {
-	token, err := b.createCredentials(ctx, req.Storage, role)
-
+	client, err := b.getClient(ctx, req.Storage)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := b.Secret(apigeeSecretType).Response(map[string]interface{}{
-		"org_name":        token.OrgName,
-		"developer_email": token.DeveloperEmail,
-		"app_name":        token.AppName,
-		"api_products":    token.ApiProducts,
-		"key":             token.Key,
-		"secret":          token.Secret,
-		"credentials":     token.Credentials,
-	}, map[string]interface{}{
-		"org_name":        token.OrgName,
-		"developer_email": token.DeveloperEmail,
-		"app_name":        token.AppName,
-		"api_products":    token.ApiProducts,
-		"key":             token.Key,
-		"secret":          token.Secret,
-		"credentials":     token.Credentials,
+	ttl := b.leaseTTL(role)
+
+	lock := locksutil.LockForKey(b.appLocks, role.OrgName+"/"+role.DeveloperEmail+"/"+role.AppName)
+	lock.Lock()
+	creds, err := client.CreateCredentials(ctx, apigee.CreateCredentialsInput{
+		Org:            role.OrgName,
+		DeveloperEmail: role.DeveloperEmail,
+		App:            role.AppName,
+		APIProducts:    role.APIProducts,
+		ExpiresIn:      ttl,
 	})
-
-	if role.TTL > 0 {
-		resp.Secret.TTL = role.TTL
-	}
-
-	return resp, nil
-}
-
-func (b *apigeeBackend) createCredentials(ctx context.Context, s logical.Storage, role *apigeeRole) (*apigeeToken, error) {
-	client, err := b.getClient(ctx, s)
-
-	if err != nil {
-		return nil, err
-	}
-
-	var token *apigeeToken
-
-	token, err = createCredentials(ctx, client, role.OrgName, role.DeveloperEmail, role.AppName, role.ApiProducts, int(role.TTL.Seconds()))
-
+	lock.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("error creating credentials: %w", err)
 	}
 
-	if token == nil {
-		return nil, errors.New("error creating credentials")
+	data := map[string]interface{}{
+		"org_name":        role.OrgName,
+		"developer_email": role.DeveloperEmail,
+		"app_name":        role.AppName,
+		"api_products":    []string(role.APIProducts),
+		"key":             creds.Key,
+		"secret":          creds.Secret,
+		"credentials":     creds.BasicAuth(),
+	}
+	if !creds.ExpiresAt.IsZero() {
+		data["expires_at"] = creds.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 
-	return token, nil
+	// Internal data is persisted with the lease; it holds only what revocation
+	// needs and never the consumer secret.
+	resp := b.Secret(secretCredentialsType).Response(data, map[string]interface{}{
+		"role":            name,
+		"org_name":        role.OrgName,
+		"developer_email": role.DeveloperEmail,
+		"app_name":        role.AppName,
+		"key":             creds.Key,
+	})
+	resp.Secret.TTL = ttl
+	resp.Secret.MaxTTL = ttl
+	return resp, nil
 }
 
-const pathCredentialsHelpSyn = `Generate Apigee credentials from Vault role.`
+// leaseTTL returns the role's TTL, defaulting to and capped by the mount's lease TTLs.
+func (b *apigeeBackend) leaseTTL(role *apigeeRole) time.Duration {
+	ttl := role.TTL
+	if ttl <= 0 {
+		ttl = b.System().DefaultLeaseTTL()
+	}
+	if maxTTL := b.System().MaxLeaseTTL(); maxTTL > 0 && ttl > maxTTL {
+		ttl = maxTTL
+	}
+	return ttl
+}
 
-const pathCredentialsHelpDesc = `Generate Apigee credentials from Vault role.`
+const pathCredentialsHelpSynopsis = `Generate Apigee credentials for a role.`
+
+const pathCredentialsHelpDescription = `
+Generates a new consumer key and secret on the role's Apigee developer app.
+The credentials expire in Apigee after the lease TTL and are deleted from
+Apigee when the lease is revoked. They are not renewable; read a new set
+before the lease expires.
+`

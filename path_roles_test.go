@@ -1,8 +1,6 @@
 package secretsengine
 
 import (
-	"context"
-	"os"
 	"testing"
 
 	"github.com/hashicorp/vault/sdk/logical"
@@ -12,103 +10,91 @@ import (
 func TestRoles(t *testing.T) {
 	b, s := getTestBackend(t)
 
-	t.Run("CreateRole", func(t *testing.T) {
-		resp, err := testRoleCreate(t, b, s, map[string]interface{}{
-			"org_name":        os.Getenv(envVarApigeeOrgName),
-			"developer_email": os.Getenv(envVarApigeeDeveloperEmail),
-			"app_name":        os.Getenv(envVarApigeeAppName),
-			"api_products":    os.Getenv(envVarApigeeApiProducts),
-			"ttl":             "24h",
-		})
-
-		require.Nil(t, err)
-		require.Nil(t, resp.Error())
-		require.Nil(t, resp)
+	t.Run("create requires fields", func(t *testing.T) {
+		resp := request(t, b, s, logical.CreateOperation, "roles/test", map[string]interface{}{"org_name": testOrg})
+		requireErrorResponse(t, resp, "missing required fields: developer_email, app_name, api_products")
 	})
 
-	t.Run("ReadRole", func(t *testing.T) {
-		resp, err := testRoleRead(t, b, s)
+	t.Run("create with legacy JSON array api_products", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.CreateOperation, "roles/test", map[string]interface{}{
+			"org_name":        testOrg,
+			"developer_email": testDev,
+			"app_name":        testApp,
+			"api_products":    `["product-a","product-b"]`,
+			"ttl":             "30m",
+		}))
 
-		require.Nil(t, err)
-		require.Nil(t, resp.Error())
+		resp := request(t, b, s, logical.ReadOperation, "roles/test", nil)
+		require.Equal(t, map[string]interface{}{
+			"org_name":        testOrg,
+			"developer_email": testDev,
+			"app_name":        testApp,
+			"api_products":    []string{"product-a", "product-b"},
+			"ttl":             int64(1800),
+		}, resp.Data)
+	})
 
+	t.Run("partial update keeps other fields", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.UpdateOperation, "roles/test", map[string]interface{}{"api_products": "product-c, product-d"}))
+
+		resp := request(t, b, s, logical.ReadOperation, "roles/test", nil)
+		require.Equal(t, []string{"product-c", "product-d"}, resp.Data["api_products"])
+		require.Equal(t, testApp, resp.Data["app_name"])
+		require.Equal(t, int64(1800), resp.Data["ttl"])
+	})
+
+	t.Run("invalid JSON api_products", func(t *testing.T) {
+		resp := request(t, b, s, logical.UpdateOperation, "roles/test", map[string]interface{}{"api_products": `["unterminated`})
+		requireErrorResponse(t, resp, "invalid api_products")
+	})
+
+	t.Run("ttl above mount max warns", func(t *testing.T) {
+		resp := request(t, b, s, logical.UpdateOperation, "roles/test", map[string]interface{}{"ttl": "48h"})
 		require.NotNil(t, resp)
-		require.NotNil(t, resp.Data)
-
-		require.Contains(t, resp.Data["org_name"], os.Getenv(envVarApigeeOrgName))
-		require.Contains(t, resp.Data["developer_email"], os.Getenv(envVarApigeeDeveloperEmail))
-		require.Contains(t, resp.Data["app_name"], os.Getenv(envVarApigeeAppName))
-		require.Contains(t, resp.Data["api_products"], os.Getenv(envVarApigeeApiProducts))
-
-		require.NotEmpty(t, resp.Data["ttl"])
+		require.Len(t, resp.Warnings, 1)
+		require.Contains(t, resp.Warnings[0], "capped")
 	})
 
-	t.Run("DeleteRole", func(t *testing.T) {
-		resp, err := testRoleDelete(t, b, s)
+	t.Run("list", func(t *testing.T) {
+		writeRole(t, b, s, "other", nil)
+		resp := request(t, b, s, logical.ListOperation, "roles/", nil)
+		require.Equal(t, []string{"other", "test"}, resp.Data["keys"])
+	})
 
-		require.Nil(t, err)
-		require.Nil(t, resp.Error())
-		require.Nil(t, resp)
+	t.Run("delete", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.DeleteOperation, "roles/test", nil))
+		require.Nil(t, request(t, b, s, logical.ReadOperation, "roles/test", nil))
 	})
 }
 
-func testRoleCreate(t *testing.T, b *apigeeBackend, s logical.Storage, d map[string]interface{}) (*logical.Response, error) {
-	t.Helper()
+func TestLegacyStoredRole(t *testing.T) {
+	b, s := getTestBackend(t)
 
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.CreateOperation,
-		Path:      "roles/test",
-		Data:      d,
-		Storage:   s,
-	})
-
-	if err != nil {
-		return nil, err
+	// Roles written by v1.1.x stored api_products as a JSON array string.
+	entry := &logical.StorageEntry{
+		Key:   "roles/legacy",
+		Value: []byte(`{"org_name":"org","developer_email":"dev@example.com","app_name":"app","api_products":"[\"product-a\",\"product-b\"]","ttl":86400000000000}`),
 	}
+	require.NoError(t, s.Put(t.Context(), entry))
 
-	if resp != nil && resp.IsError() {
-		t.Fatal(resp.Error())
-	}
-
-	return resp, nil
+	resp := request(t, b, s, logical.ReadOperation, "roles/legacy", nil)
+	require.Equal(t, []string{"product-a", "product-b"}, resp.Data["api_products"])
+	require.Equal(t, int64(86400), resp.Data["ttl"])
 }
 
-func testRoleRead(t *testing.T, b *apigeeBackend, s logical.Storage) (*logical.Response, error) {
-	t.Helper()
-
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.ReadOperation,
-		Path:      "roles/test",
-		Storage:   s,
-	})
-
-	if err != nil {
-		return nil, err
+func TestParseAPIProducts(t *testing.T) {
+	for _, tt := range []struct {
+		in   []string
+		want []string
+	}{
+		{[]string{"a"}, []string{"a"}},
+		{[]string{"a", " b ", ""}, []string{"a", "b"}},
+		{[]string{`["a"`, `"b"]`}, []string{"a", "b"}},
+		{[]string{`["a,b"]`}, []string{"a,b"}},
+		{[]string{`[]`}, []string{}},
+	} {
+		got, err := parseAPIProducts(tt.in)
+		require.NoError(t, err)
+		require.Equal(t, tt.want, got, "input %q", tt.in)
 	}
-
-	if resp != nil && resp.IsError() {
-		t.Fatal(resp.Error())
-	}
-
-	return resp, nil
-}
-
-func testRoleDelete(t *testing.T, b *apigeeBackend, s logical.Storage) (*logical.Response, error) {
-	t.Helper()
-
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.DeleteOperation,
-		Path:      "roles/test",
-		Storage:   s,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if resp != nil && resp.IsError() {
-		t.Fatal(resp.Error())
-	}
-
-	return resp, nil
 }

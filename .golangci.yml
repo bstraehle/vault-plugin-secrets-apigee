@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    gosec:
+      excludes:
+        # Field names such as "oauth_token" and "credentials" are not secrets.
+        - G101
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

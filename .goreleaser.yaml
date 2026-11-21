@@ -1,0 +1,31 @@
+version: 2
+
+project_name: vault-plugin-secrets-apigee
+
+builds:
+  - main: ./cmd/vault-plugin-secrets-apigee
+    binary: vault-plugin-secrets-apigee
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/bstraehle/vault-plugin-secrets-apigee.Version={{ .Tag }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  # Ship raw binaries (as in earlier releases) so they can be dropped into the
+  # Vault plugin directory and registered with their SHA256 from checksums.txt.
+  - formats: [binary]
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: github-native
+
+release:
+  draft: true
