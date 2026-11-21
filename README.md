@@ -316,10 +316,10 @@ path "apigee/creds/test" {
 
 ## 10. How It Works
 
-- Reading `creds/<role>` generates a new consumer key and secret on the role's developer app, associated with the role's API products and expiring in Apigee after the lease TTL. Expiry in Apigee is a backstop: if revocation fails, the key still stops working.
+- Reading `creds/<role>` generates a new consumer key and secret on the role's developer app, associated with the role's API products. The key expires in Apigee one minute after the lease TTL, so it stays valid for the entire lease despite latency or clock skew; the expiry is a backstop in case revocation fails.
 - The app's existing attributes and callback URL are preserved; the Apigee API would otherwise replace them on key generation.
 - Credential generation is serialized per developer app so the newly created key is identified unambiguously.
-- Revoking the lease (explicitly or on expiry) deletes the key from Apigee. Keys that are already gone are treated as revoked.
+- Revoking the lease (explicitly or on expiry) deletes the key from Apigee. Keys that are already gone are treated as revoked. If the mount's `host` has changed since the lease was issued, revocation fails (and Vault retries) rather than treating a 404 from the wrong Apigee as success.
 - Only the identifiers needed for revocation (org, developer, app, key) are persisted with the lease; the consumer secret is not.
 
 ## 11. Upgrading from v1.1.x
@@ -329,7 +329,7 @@ v1.2.0 is backward compatible with existing configuration, roles, and leases. No
 - `host` is optional and defaults to Apigee X / hybrid.
 - New `credentials` config field (service account key JSON) with automatic token refresh.
 - `api_products` is returned as a list instead of a JSON string. Existing roles are read transparently.
-- `ttl` is optional on roles and is capped at the mount's max lease TTL. The Apigee expiry now always matches the lease.
+- `ttl` is optional on roles and is capped at the mount's max lease TTL. The Apigee expiry is now the lease TTL plus one minute.
 - Role updates are partial; omitted fields keep their values.
 - New `expires_at` field in credentials; the consumer secret is no longer persisted in lease storage.
 - Role names in `creds/` are no longer lowercased, so they match the names used in `roles/`.

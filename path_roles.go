@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/locksutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -171,6 +172,10 @@ func (b *apigeeBackend) pathRolesRead(ctx context.Context, req *logical.Request,
 func (b *apigeeBackend) pathRolesWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	name := d.Get("name").(string)
 
+	lock := locksutil.LockForKey(b.roleLocks, name)
+	lock.Lock()
+	defer lock.Unlock()
+
 	role, err := getRole(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
@@ -214,7 +219,13 @@ func (b *apigeeBackend) pathRolesWrite(ctx context.Context, req *logical.Request
 }
 
 func (b *apigeeBackend) pathRolesDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	if err := req.Storage.Delete(ctx, roleStoragePrefix+d.Get("name").(string)); err != nil {
+	name := d.Get("name").(string)
+
+	lock := locksutil.LockForKey(b.roleLocks, name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := req.Storage.Delete(ctx, roleStoragePrefix+name); err != nil {
 		return nil, fmt.Errorf("error deleting role: %w", err)
 	}
 	return nil, nil

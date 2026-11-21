@@ -210,6 +210,12 @@ func getConfig(ctx context.Context, s logical.Storage) (*apigeeConfig, error) {
 	if config.Host == "" {
 		config.Host = apigee.DefaultHost
 	}
+	// Versions before v1.2.0 kept omitted fields on update, so a config could
+	// hold both an OAuth token and stale basic auth fields; the token took
+	// precedence.
+	if config.OAuthToken != "" {
+		config.Username, config.Password = "", ""
+	}
 	return config, nil
 }
 

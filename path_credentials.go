@@ -11,6 +11,12 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
+// apigeeExpiryGrace extends the Apigee expiry past the lease so the key stays
+// valid for the whole lease regardless of request latency or clock skew
+// between Vault and Apigee. Vault deletes the key when the lease ends; the
+// Apigee expiry is only a backstop in case revocation fails.
+const apigeeExpiryGrace = time.Minute
+
 func pathCredentials(b *apigeeBackend) *framework.Path {
 	return &framework.Path{
 		Pattern: "creds/" + framework.GenericNameRegex("name"),
@@ -55,7 +61,7 @@ func (b *apigeeBackend) pathCredentialsRead(ctx context.Context, req *logical.Re
 		DeveloperEmail: role.DeveloperEmail,
 		App:            role.AppName,
 		APIProducts:    role.APIProducts,
-		ExpiresIn:      ttl,
+		ExpiresIn:      ttl + apigeeExpiryGrace,
 	})
 	lock.Unlock()
 	if err != nil {
@@ -79,6 +85,7 @@ func (b *apigeeBackend) pathCredentialsRead(ctx context.Context, req *logical.Re
 	// needs and never the consumer secret.
 	resp := b.Secret(secretCredentialsType).Response(data, map[string]interface{}{
 		"role":            name,
+		"host":            client.Host(),
 		"org_name":        role.OrgName,
 		"developer_email": role.DeveloperEmail,
 		"app_name":        role.AppName,

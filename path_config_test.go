@@ -1,12 +1,16 @@
 package secretsengine
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	apigee "github.com/bstraehle/apigee-client-go/v2"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -82,31 +86,97 @@ func TestConfig(t *testing.T) {
 		require.Equal(t, apigee.DefaultHost, config.Host)
 	})
 
+	t.Run("legacy config with token and stale basic auth uses the token", func(t *testing.T) {
+		entry, err := logical.StorageEntryJSON(configStoragePath, map[string]string{
+			"host": "https://apigee.googleapis.com", "oauth_token": "t", "username": "stale", "password": "stale",
+		})
+		require.NoError(t, err)
+		require.NoError(t, s.Put(t.Context(), entry))
+
+		config, err := getConfig(t.Context(), s)
+		require.NoError(t, err)
+		require.Equal(t, &apigeeConfig{Host: "https://apigee.googleapis.com", OAuthToken: "t"}, config)
+		_, err = config.newClient()
+		require.NoError(t, err)
+		require.Equal(t, authTypeOAuthToken, request(t, b, s, logical.ReadOperation, "config", nil).Data["auth_type"])
+	})
+
 	t.Run("delete", func(t *testing.T) {
 		requireOK(t, request(t, b, s, logical.DeleteOperation, "config", nil))
 		require.Nil(t, request(t, b, s, logical.ReadOperation, "config", nil))
 	})
 }
 
-func TestServiceAccountCredentials(t *testing.T) {
-	b, s := getTestBackend(t)
-	f := newFakeApigee(t)
-
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+func serviceAccountJSON(t *testing.T, tokenURI string, privateKey string) string {
+	t.Helper()
+	if privateKey == "" {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		require.NoError(t, err)
+		privateKey = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: must(x509.MarshalPKCS8PrivateKey(key))}))
+	}
 	sa, err := json.Marshal(map[string]string{
 		"type":           "service_account",
 		"project_id":     "test",
 		"private_key_id": "1",
-		"private_key":    string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: must(x509.MarshalPKCS8PrivateKey(key))})),
+		"private_key":    privateKey,
 		"client_email":   "vault@test.iam.gserviceaccount.com",
-		"token_uri":      f.URL + "/token",
+		"token_uri":      tokenURI,
 	})
 	require.NoError(t, err)
+	return string(sa)
+}
+
+func TestServiceAccountInvalidKeyKeepsConfig(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	configure(t, b, s, f)
+
+	badKey := "-----BEGIN PRIVATE KEY-----\nZGFtYWdlZA==\n-----END PRIVATE KEY-----\n"
+	resp := request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"credentials": serviceAccountJSON(t, f.URL+"/token", badKey)})
+	requireErrorResponse(t, resp, "private_key")
+
+	resp = request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"credentials": `{"type":"service_account","private_key":"x"}`})
+	requireErrorResponse(t, resp, "client_email and private_key are required")
+
+	require.Equal(t, authTypeOAuthToken, request(t, b, s, logical.ReadOperation, "config", nil).Data["auth_type"], "rejected update must keep the working config")
+}
+
+func TestServiceAccountTokenTimeout(t *testing.T) {
+	old := tokenHTTPTimeout
+	tokenHTTPTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { tokenHTTPTimeout = old })
+
+	release := make(chan struct{})
+	stalled := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); stalled.Close() })
+
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	requireOK(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{
+		"host":        f.URL,
+		"credentials": serviceAccountJSON(t, stalled.URL, ""),
+	}))
+	writeRole(t, b, s, "test", nil)
+
+	start := time.Now()
+	_, err := b.HandleRequest(context.Background(), &logical.Request{Operation: logical.ReadOperation, Path: "creds/test", Storage: s})
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 5*time.Second, "token exchange must be bounded")
+}
+
+func TestServiceAccountCredentials(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	sa := serviceAccountJSON(t, f.URL+"/token", "")
 
 	requireOK(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{
 		"host":        f.URL,
-		"credentials": string(sa),
+		"credentials": sa,
 	}))
 	require.Equal(t, authTypeServiceAccount, request(t, b, s, logical.ReadOperation, "config", nil).Data["auth_type"])
 

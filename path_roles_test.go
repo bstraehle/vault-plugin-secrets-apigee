@@ -1,6 +1,8 @@
 package secretsengine
 
 import (
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/vault/sdk/logical"
@@ -65,6 +67,28 @@ func TestRoles(t *testing.T) {
 		requireOK(t, request(t, b, s, logical.DeleteOperation, "roles/test", nil))
 		require.Nil(t, request(t, b, s, logical.ReadOperation, "roles/test", nil))
 	})
+}
+
+func TestRoleConcurrentPartialUpdates(t *testing.T) {
+	b, s := getTestBackend(t)
+
+	for i := range 20 {
+		name := "role" + strconv.Itoa(i)
+		writeRole(t, b, s, name, map[string]interface{}{"ttl": "24h"})
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			request(t, b, s, logical.UpdateOperation, "roles/"+name, map[string]interface{}{"ttl": "1h"})
+		})
+		wg.Go(func() {
+			request(t, b, s, logical.UpdateOperation, "roles/"+name, map[string]interface{}{"api_products": "product-z"})
+		})
+		wg.Wait()
+
+		resp := request(t, b, s, logical.ReadOperation, "roles/"+name, nil)
+		require.Equal(t, int64(3600), resp.Data["ttl"], "role %s lost the ttl update", name)
+		require.Equal(t, []string{"product-z"}, resp.Data["api_products"], "role %s lost the api_products update", name)
+	}
 }
 
 func TestLegacyStoredRole(t *testing.T) {

@@ -40,6 +40,9 @@ type apigeeBackend struct {
 	// appLocks serializes credential creation per developer app so that the
 	// newly created key can be identified unambiguously.
 	appLocks []*locksutil.LockEntry
+
+	// roleLocks serializes read-modify-write updates per role.
+	roleLocks []*locksutil.LockEntry
 }
 
 // Factory returns a configured instance of the Apigee secrets engine.
@@ -52,7 +55,7 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 }
 
 func backend() *apigeeBackend {
-	b := &apigeeBackend{appLocks: locksutil.CreateLocks()}
+	b := &apigeeBackend{appLocks: locksutil.CreateLocks(), roleLocks: locksutil.CreateLocks()}
 
 	b.Backend = &framework.Backend{
 		Help: strings.TrimSpace(backendHelp),

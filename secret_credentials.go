@@ -44,6 +44,12 @@ func (b *apigeeBackend) secretCredentialsRevoke(ctx context.Context, req *logica
 		return nil, err
 	}
 
+	// A 404 is only proof of deletion from the Apigee that issued the key.
+	// Leases from before v1.2.0 don't record the host.
+	if host, ok := req.Secret.InternalData["host"].(string); ok && host != client.Host() {
+		return nil, fmt.Errorf("lease was issued by %s but the mount is now configured for %s; restore the host to revoke, or delete key %s in Apigee and force-revoke the lease", host, client.Host(), ids[3])
+	}
+
 	err = client.DeleteCredentials(ctx, ids[0], ids[1], ids[2], ids[3])
 	if apigee.IsNotFound(err) {
 		// Already deleted, or the app is gone: nothing left to revoke.
