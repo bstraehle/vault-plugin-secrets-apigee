@@ -24,8 +24,8 @@ github.com/armon/go-radix v1.0.0/go.mod h1:ufUuZ+zHj4x4TnLV4JWEpy2hxWSpsRywHrMgI
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+CedLV8=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
-github.com/bstraehle/apigee-client-go/v2 v2.0.0-20261121042720-681fda26a1a0 h1:xdOYKKzdkHl+m1PKhddWuNYnou7n5LeKGBcQO7G8ptw=
-github.com/bstraehle/apigee-client-go/v2 v2.0.0-20261121042720-681fda26a1a0/go.mod h1:DG1dCipvK3yqNsieEhBAG/oT9bcIS/0onL3ABdE2/XA=
+github.com/bstraehle/apigee-client-go/v2 v2.0.0 h1:6FsSFXKkEfvsyuR4wjF+6EpEMZiLUZ6gJoE8pojmoGE=
+github.com/bstraehle/apigee-client-go/v2 v2.0.0/go.mod h1:DG1dCipvK3yqNsieEhBAG/oT9bcIS/0onL3ABdE2/XA=
 github.com/bufbuild/protocompile v0.14.1 h1:iA73zAf/fyljNjQKwYzUHD6AD4R8KMasmwa/FBatYVw=
 github.com/bufbuild/protocompile v0.14.1/go.mod h1:ppVdAIhbr2H8asPk6k4pY7t9zB1OU5DoEw9xY/FUi1c=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=

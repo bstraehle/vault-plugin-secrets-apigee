@@ -3,7 +3,7 @@ module github.com/bstraehle/vault-plugin-secrets-apigee
 go 1.26.0
 
 require (
-	github.com/bstraehle/apigee-client-go/v2 v2.0.0-20261121042720-681fda26a1a0
+	github.com/bstraehle/apigee-client-go/v2 v2.0.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/hashicorp/vault/sdk v0.26.0
