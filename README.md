@@ -52,7 +52,7 @@ Download a release binary and verify its checksum:
 
 ```shell
 VERSION=v1.2.0
-OS_ARCH=linux-amd64   # also linux-arm64, darwin-amd64, darwin-arm64, windows-amd64, windows-arm64
+OS_ARCH=linux-amd64   # also linux-arm64, darwin-amd64, darwin-arm64, windows-amd64.exe, windows-arm64.exe
 
 mkdir -p vault/plugins && cd vault/plugins
 curl -fsSLO https://github.com/bstraehle/vault-plugin-secrets-apigee/releases/download/$VERSION/vault-plugin-secrets-apigee-$OS_ARCH
