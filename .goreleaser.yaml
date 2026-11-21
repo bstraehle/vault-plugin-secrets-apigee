@@ -13,6 +13,11 @@ builds:
       - -s -w -X github.com/bstraehle/vault-plugin-secrets-apigee.Version={{ .Tag }}
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
+    hooks:
+      # Scan every shipped binary; a failure aborts before anything is published.
+      post:
+        - cmd: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "{{ .Path }}"
+          output: true
 
 archives:
   # Ship raw binaries (as in earlier releases) so they can be dropped into the
