@@ -17,7 +17,7 @@ import (
 
 // Version is the plugin version reported to Vault. It is set at build time:
 //
-//	go build -ldflags "-X github.com/bstraehle/vault-plugin-secrets-apigee.Version=v1.2.0" ./cmd/vault-plugin-secrets-apigee
+//	go build -ldflags "-X github.com/bstraehle/vault-plugin-secrets-apigee.Version=v1.2.1" ./cmd/vault-plugin-secrets-apigee
 var Version = ""
 
 const backendHelp = `

@@ -51,7 +51,7 @@ Windows, Vault CLI, and Apigee Edge for Private Cloud
 Download a release binary and verify its checksum:
 
 ```shell
-VERSION=v1.2.0
+VERSION=v1.2.1
 OS_ARCH=linux-amd64   # also linux-arm64, darwin-amd64, darwin-arm64, windows-amd64.exe, windows-arm64.exe
 
 mkdir -p vault/plugins && cd vault/plugins
@@ -117,7 +117,7 @@ vault login
 
 SHA256=$(sha256sum vault/plugins/vault-plugin-secrets-apigee | cut -d ' ' -f1)
 
-vault plugin register -sha256=$SHA256 -version=v1.2.0 secret vault-plugin-secrets-apigee
+vault plugin register -sha256=$SHA256 -version=v1.2.1 secret vault-plugin-secrets-apigee
 ```
 ```
 Success! Registered plugin: vault-plugin-secrets-apigee
@@ -324,7 +324,7 @@ path "apigee/creds/test" {
 
 ## 11. Upgrading from v1.1.x
 
-v1.2.0 is backward compatible with existing configuration, roles, and leases. Notable changes:
+v1.2.1 (the first v1.2 release) is backward compatible with existing configuration, roles, and leases. Notable changes:
 
 - `host` is optional and defaults to Apigee X / hybrid.
 - New `credentials` config field (service account key JSON) with automatic token refresh.
