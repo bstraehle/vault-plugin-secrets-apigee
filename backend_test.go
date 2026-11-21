@@ -2,135 +2,191 @@ package secretsengine
 
 import (
 	"context"
-	"os"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/stretchr/testify/require"
 )
 
-type testEnv struct {
-	Host       string
-	OAuthToken string
-	Username   string
-	Password   string
+const (
+	testDefaultTTL = time.Hour
+	testMaxTTL     = 24 * time.Hour
 
-	OrgName        string
-	DeveloperEmail string
-	AppName        string
-	ApiProducts    string
+	testOrg   = "org"
+	testDev   = "dev@example.com"
+	testApp   = "app"
+	testToken = "static-token"
+)
 
-	Keys []string
-
-	Backend logical.Backend
-	Context context.Context
-	Storage logical.Storage
-}
-
-func getTestBackend(tb testing.TB) (*apigeeBackend, logical.Storage) {
-	tb.Helper()
+func getTestBackend(t *testing.T) (*apigeeBackend, logical.Storage) {
+	t.Helper()
 
 	config := logical.TestBackendConfig()
-	config.StorageView = new(logical.InmemStorage)
+	config.StorageView = &logical.InmemStorage{}
 	config.Logger = hclog.NewNullLogger()
-	config.System = logical.TestSystemView()
-
-	b, err := Factory(context.Background(), config)
-
-	if err != nil {
-		tb.Fatal(err)
+	config.System = &logical.StaticSystemView{
+		DefaultLeaseTTLVal: testDefaultTTL,
+		MaxLeaseTTLVal:     testMaxTTL,
 	}
 
+	b, err := Factory(context.Background(), config)
+	require.NoError(t, err)
 	return b.(*apigeeBackend), config.StorageView
 }
 
-func (e *testEnv) CreateConfig(t *testing.T) {
-	req := &logical.Request{
-		Operation: logical.CreateOperation,
-		Path:      "config",
-		Storage:   e.Storage,
-		Data: map[string]interface{}{
-			"host":        e.Host,
-			"oauth_token": e.OAuthToken,
-			"username":    e.Username,
-			"password":    e.Password,
-		},
-	}
-
-	resp, err := e.Backend.HandleRequest(e.Context, req)
-
-	require.Nil(t, err)
-	require.Nil(t, resp)
+func request(t *testing.T, b logical.Backend, s logical.Storage, op logical.Operation, path string, data map[string]interface{}) *logical.Response {
+	t.Helper()
+	resp, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: op,
+		Path:      path,
+		Data:      data,
+		Storage:   s,
+	})
+	require.NoError(t, err)
+	return resp
 }
 
-func (e *testEnv) CreateRole(t *testing.T) {
-	req := &logical.Request{
-		Operation: logical.CreateOperation,
-		Path:      "roles/test",
-		Storage:   e.Storage,
-		Data: map[string]interface{}{
-			"org_name":        e.OrgName,
-			"developer_email": e.DeveloperEmail,
-			"app_name":        e.AppName,
-			"api_products":    e.ApiProducts,
-
-			"ttl": 86400,
-		},
+func requireOK(t *testing.T, resp *logical.Response) {
+	t.Helper()
+	if resp != nil && resp.IsError() {
+		t.Fatalf("unexpected error response: %v", resp.Error())
 	}
-
-	resp, err := e.Backend.HandleRequest(e.Context, req)
-
-	require.Nil(t, err)
-	require.Nil(t, resp)
 }
 
-func (e *testEnv) ReadCred(t *testing.T) {
-	req := &logical.Request{
-		Operation: logical.ReadOperation,
-		Path:      "creds/test",
-		Storage:   e.Storage,
-	}
-
-	resp, err := e.Backend.HandleRequest(e.Context, req)
-
-	require.Nil(t, err)
+func requireErrorResponse(t *testing.T, resp *logical.Response, contains string) {
+	t.Helper()
 	require.NotNil(t, resp)
-	require.NotNil(t, resp.Data)
-
-	require.Contains(t, resp.Data["org_name"], os.Getenv(envVarApigeeOrgName))
-	require.Contains(t, resp.Data["developer_email"], os.Getenv(envVarApigeeDeveloperEmail))
-	require.Contains(t, resp.Data["app_name"], os.Getenv(envVarApigeeAppName))
-	require.Contains(t, resp.Data["api_products"], os.Getenv(envVarApigeeApiProducts))
-
-	require.NotEmpty(t, resp.Data["key"])
-	require.NotEmpty(t, resp.Data["secret"])
-	require.NotEmpty(t, resp.Data["credentials"])
-
-	k, ok := resp.Data["key"]
-
-	if ok {
-		e.Keys = append(e.Keys, k.(string))
-	}
+	require.True(t, resp.IsError(), "expected error response, got %#v", resp)
+	require.Contains(t, resp.Error().Error(), contains)
 }
 
-func (e *testEnv) DeleteCreds(t *testing.T) {
-	if len(e.Keys) == 0 {
-		t.Fatalf("expected 3 keys, got: %d", len(e.Keys))
+// fakeApigee is an in-memory Apigee management API serving a single developer
+// app, plus an OAuth 2.0 token endpoint for service account tests.
+type fakeApigee struct {
+	*httptest.Server
+
+	mu          sync.Mutex
+	keys        map[string]int64 // consumer key -> expiresAt (ms)
+	next        int
+	auth        []string
+	posts       []map[string]interface{}
+	tokenIssued int
+}
+
+func newFakeApigee(t *testing.T) *fakeApigee {
+	t.Helper()
+	f := &fakeApigee{keys: map[string]int64{"preexisting": -1}}
+	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.Close)
+	return f
+}
+
+func (f *fakeApigee) serve(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if r.URL.Path == "/token" {
+		f.tokenIssued++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"sa-token","token_type":"Bearer","expires_in":3600}`))
+		return
 	}
 
-	for _, key := range e.Keys {
-		b := e.Backend.(*apigeeBackend)
-		client, err := b.getClient(e.Context, e.Storage)
+	f.auth = append(f.auth, r.Header.Get("Authorization"))
+	appPath := "/v1/organizations/" + testOrg + "/developers/" + testDev + "/apps/" + testApp
 
-		if err != nil {
-			t.Fatal("error getting client")
+	switch {
+	case r.URL.Path == appPath && r.Method == http.MethodGet:
+	case r.URL.Path == appPath && r.Method == http.MethodPost:
+		var body map[string]interface{}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		f.posts = append(f.posts, body)
+		ms, _ := strconv.ParseInt(body["keyExpiresIn"].(string), 10, 64)
+		f.next++
+		f.keys["key-"+strconv.Itoa(f.next)] = time.Now().UnixMilli() + ms
+	case strings.HasPrefix(r.URL.Path, appPath+"/keys/") && r.Method == http.MethodDelete:
+		key := strings.TrimPrefix(r.URL.Path, appPath+"/keys/")
+		if _, ok := f.keys[key]; !ok {
+			http.Error(w, `{"error":{"code":404}}`, http.StatusNotFound)
+			return
 		}
-
-		err = client.DeleteCredentials(e.OrgName, e.DeveloperEmail, e.AppName, key)
-
-		if err != nil {
-			t.Fatalf("error deleting credentials: %s", err)
-		}
+		delete(f.keys, key)
+		_, _ = w.Write([]byte(`{}`))
+		return
+	default:
+		http.Error(w, `{"error":{"code":404}}`, http.StatusNotFound)
+		return
 	}
+
+	creds := []map[string]string{}
+	for k, exp := range f.keys {
+		creds = append(creds, map[string]string{
+			"consumerKey":    k,
+			"consumerSecret": "secret-of-" + k,
+			"issuedAt":       strconv.FormatInt(time.Now().UnixMilli(), 10),
+			"expiresAt":      strconv.FormatInt(exp, 10),
+		})
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"name": testApp, "credentials": creds})
+}
+
+func (f *fakeApigee) hasKey(key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.keys[key]
+	return ok
+}
+
+func (f *fakeApigee) lastPost() map[string]interface{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.posts[len(f.posts)-1]
+}
+
+func configure(t *testing.T, b logical.Backend, s logical.Storage, f *fakeApigee) {
+	t.Helper()
+	requireOK(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{
+		"host":        f.URL,
+		"oauth_token": testToken,
+	}))
+}
+
+func writeRole(t *testing.T, b logical.Backend, s logical.Storage, name string, extra map[string]interface{}) {
+	t.Helper()
+	data := map[string]interface{}{
+		"org_name":        testOrg,
+		"developer_email": testDev,
+		"app_name":        testApp,
+		"api_products":    "product-a,product-b",
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	requireOK(t, request(t, b, s, logical.CreateOperation, "roles/"+name, data))
+}
+
+func TestInvalidateResetsClient(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	configure(t, b, s, f)
+
+	_, err := b.getClient(context.Background(), s)
+	require.NoError(t, err)
+	require.NotNil(t, b.client)
+
+	b.invalidate(context.Background(), "roles/x")
+	require.NotNil(t, b.client)
+
+	b.invalidate(context.Background(), configStoragePath)
+	require.Nil(t, b.client)
 }

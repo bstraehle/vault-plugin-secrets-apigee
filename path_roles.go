@@ -2,88 +2,150 @@ package secretsengine
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/locksutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-const (
-	pathRoleHelpSynopsis    = `Manages roles for generating Apigee credentials.`
-	pathRoleHelpDescription = `This path manages Vault roles for generating Apigee credentials.`
-
-	pathRoleListHelpSynopsis    = `Lists roles for generating Apigee credentials.`
-	pathRoleListHelpDescription = `This path lists Vault roles for generating Apigee credentials.`
-)
+const roleStoragePrefix = "roles/"
 
 type apigeeRole struct {
 	OrgName        string        `json:"org_name"`
 	DeveloperEmail string        `json:"developer_email"`
 	AppName        string        `json:"app_name"`
-	ApiProducts    string        `json:"api_products"`
+	APIProducts    apiProducts   `json:"api_products"`
 	TTL            time.Duration `json:"ttl"`
+}
+
+func (r *apigeeRole) validate() error {
+	var missing []string
+	for _, f := range []struct {
+		name  string
+		unset bool
+	}{
+		{"org_name", r.OrgName == ""},
+		{"developer_email", r.DeveloperEmail == ""},
+		{"app_name", r.AppName == ""},
+		{"api_products", len(r.APIProducts) == 0},
+	} {
+		if f.unset {
+			missing = append(missing, f.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required fields: %s", strings.Join(missing, ", "))
+	}
+	if r.TTL < 0 {
+		return errors.New("ttl must not be negative")
+	}
+	return nil
+}
+
+func (r *apigeeRole) toResponseData() map[string]interface{} {
+	return map[string]interface{}{
+		"org_name":        r.OrgName,
+		"developer_email": r.DeveloperEmail,
+		"app_name":        r.AppName,
+		"api_products":    []string(r.APIProducts),
+		"ttl":             int64(r.TTL.Seconds()),
+	}
+}
+
+// apiProducts is a list of Apigee API product names. Versions before v1.2.0
+// stored it as a JSON array encoded in a string (e.g. `["a","b"]`); both forms
+// are accepted.
+type apiProducts []string
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (p *apiProducts) UnmarshalJSON(b []byte) error {
+	var list []string
+	if err := json.Unmarshal(b, &list); err == nil {
+		*p = list
+		return nil
+	}
+	var legacy string
+	if err := json.Unmarshal(b, &legacy); err != nil {
+		return fmt.Errorf("invalid api_products: %w", err)
+	}
+	list, err := parseAPIProducts(strings.Split(legacy, ","))
+	if err != nil {
+		return err
+	}
+	*p = list
+	return nil
+}
+
+// parseAPIProducts normalizes the api_products field. It accepts a list, a
+// comma-separated string (already split by Vault), or a JSON array string
+// such as `["a","b"]`, which Vault's comma splitting breaks apart.
+func parseAPIProducts(in []string) ([]string, error) {
+	if len(in) > 0 && strings.HasPrefix(strings.TrimSpace(in[0]), "[") {
+		var list []string
+		if err := json.Unmarshal([]byte(strings.Join(in, ",")), &list); err != nil {
+			return nil, fmt.Errorf("invalid api_products: %w", err)
+		}
+		in = list
+	}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }
 
 func pathRoles(b *apigeeBackend) []*framework.Path {
 	return []*framework.Path{
 		{
-			Pattern: "roles/" + framework.GenericNameRegex("name"),
+			Pattern: roleStoragePrefix + framework.GenericNameRegex("name"),
 			Fields: map[string]*framework.FieldSchema{
 				"name": {
 					Type:        framework.TypeString,
-					Description: "The role name",
+					Description: "Name of the role.",
 					Required:    true,
 				},
 				"org_name": {
 					Type:        framework.TypeString,
-					Description: "The org_name for the Apigee Management API",
-					Required:    true,
+					Description: "Apigee organization name.",
 				},
 				"developer_email": {
 					Type:        framework.TypeString,
-					Description: "The developer_email for the Apigee Management API",
-					Required:    true,
+					Description: "Email of the Apigee developer that owns the app.",
 				},
 				"app_name": {
 					Type:        framework.TypeString,
-					Description: "The app_name for the Apigee Management API",
-					Required:    true,
+					Description: "Name of the Apigee developer app to generate credentials for.",
 				},
 				"api_products": {
-					Type:        framework.TypeString,
-					Description: "The api_products for the Apigee Management API",
-					Required:    true,
+					Type:        framework.TypeCommaStringSlice,
+					Description: `API products to associate with generated credentials, as a list, a comma-separated string, or a JSON array string (e.g. ["a","b"]).`,
 				},
 				"ttl": {
 					Type:        framework.TypeDurationSecond,
-					Description: "Lease for credentials",
+					Description: "Lease duration and Apigee expiry of generated credentials. Defaults to the mount's default lease TTL; capped at the mount's max lease TTL.",
 				},
 			},
 			Operations: map[logical.Operation]framework.OperationHandler{
-					logical.ReadOperation: &framework.PathOperation{
-						Callback: b.pathRolesRead,
-					},
-					logical.CreateOperation: &framework.PathOperation{
-						Callback: b.pathRolesWrite,
-					},
-					logical.UpdateOperation: &framework.PathOperation{
-						Callback: b.pathRolesWrite,
-					},
-					logical.DeleteOperation: &framework.PathOperation{
-						Callback: b.pathRolesDelete,
-					},
-				},
-				ExistenceCheck:  b.pathRolesExistenceCheck,
-				HelpSynopsis:    pathRoleHelpSynopsis,
-				HelpDescription: pathRoleHelpDescription,
+				logical.ReadOperation:   &framework.PathOperation{Callback: b.pathRolesRead},
+				logical.CreateOperation: &framework.PathOperation{Callback: b.pathRolesWrite},
+				logical.UpdateOperation: &framework.PathOperation{Callback: b.pathRolesWrite},
+				logical.DeleteOperation: &framework.PathOperation{Callback: b.pathRolesDelete},
+			},
+			ExistenceCheck:  b.pathRolesExistenceCheck,
+			HelpSynopsis:    pathRoleHelpSynopsis,
+			HelpDescription: pathRoleHelpDescription,
 		},
 		{
-			Pattern: "roles/?$",
+			Pattern: roleStoragePrefix + "?$",
 			Operations: map[logical.Operation]framework.OperationHandler{
-				logical.ListOperation: &framework.PathOperation{
-					Callback: b.pathRolesList,
-				},
+				logical.ListOperation: &framework.PathOperation{Callback: b.pathRolesList},
 			},
 			HelpSynopsis:    pathRoleListHelpSynopsis,
 			HelpDescription: pathRoleListHelpDescription,
@@ -91,156 +153,121 @@ func pathRoles(b *apigeeBackend) []*framework.Path {
 	}
 }
 
-func (b *apigeeBackend) pathRolesWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	name, ok := d.GetOk("name")
-
-	if !ok {
-		return logical.ErrorResponse("missing role name"), nil
+func (b *apigeeBackend) pathRolesExistenceCheck(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
+	role, err := getRole(ctx, req.Storage, d.Get("name").(string))
+	if err != nil {
+		return false, err
 	}
+	return role != nil, nil
+}
 
-	role, err := b.getRole(ctx, req.Storage, name.(string))
+func (b *apigeeBackend) pathRolesRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	role, err := getRole(ctx, req.Storage, d.Get("name").(string))
+	if err != nil || role == nil {
+		return nil, err
+	}
+	return &logical.Response{Data: role.toResponseData()}, nil
+}
 
+func (b *apigeeBackend) pathRolesWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	name := d.Get("name").(string)
+
+	lock := locksutil.LockForKey(b.roleLocks, name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	role, err := getRole(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
 	}
-
 	if role == nil {
 		role = &apigeeRole{}
 	}
 
-	if org_name, ok := d.GetOk("org_name"); ok {
-		role.OrgName = org_name.(string)
-	} else if !ok {
-		return nil, fmt.Errorf("missing org_name in role")
+	for field, dst := range map[string]*string{"org_name": &role.OrgName, "developer_email": &role.DeveloperEmail, "app_name": &role.AppName} {
+		if v, ok := d.GetOk(field); ok {
+			*dst = v.(string)
+		}
+	}
+	if v, ok := d.GetOk("api_products"); ok {
+		if role.APIProducts, err = parseAPIProducts(v.([]string)); err != nil {
+			return logical.ErrorResponse(err.Error()), nil
+		}
+	}
+	if v, ok := d.GetOk("ttl"); ok {
+		role.TTL = time.Duration(v.(int)) * time.Second
 	}
 
-	if developer_email, ok := d.GetOk("developer_email"); ok {
-		role.DeveloperEmail = developer_email.(string)
-	} else if !ok {
-		return nil, fmt.Errorf("missing developer_email in role")
+	if err := role.validate(); err != nil {
+		return logical.ErrorResponse(err.Error()), nil
 	}
 
-	if app_name, ok := d.GetOk("app_name"); ok {
-		role.AppName = app_name.(string)
-	} else if !ok {
-		return nil, fmt.Errorf("missing app_name in role")
-	}
-
-	if api_products, ok := d.GetOk("api_products"); ok {
-		role.ApiProducts = api_products.(string)
-	} else if !ok {
-		return nil, fmt.Errorf("missing api_products in role")
-	}
-
-	if ttl, ok := d.GetOk("ttl"); ok {
-		role.TTL = time.Duration(ttl.(int)) * time.Second
-	} else if !ok {
-		return nil, fmt.Errorf("missing ttl in role")
-	}
-
-	if err := setRole(ctx, req.Storage, name.(string), role); err != nil {
-		return nil, err
-	}
-
-	return nil, nil
-}
-
-func (b *apigeeBackend) pathRolesRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	role, err := b.getRole(ctx, req.Storage, d.Get("name").(string))
-
+	entry, err := logical.StorageEntryJSON(roleStoragePrefix+name, role)
 	if err != nil {
 		return nil, err
 	}
-
-	if role == nil {
-		return nil, nil
+	if err := req.Storage.Put(ctx, entry); err != nil {
+		return nil, err
 	}
 
-	return &logical.Response{
-		Data: role.toResponseData(),
-	}, nil
+	if maxTTL := b.System().MaxLeaseTTL(); maxTTL > 0 && role.TTL > maxTTL {
+		resp := &logical.Response{}
+		resp.AddWarning(fmt.Sprintf("ttl %s exceeds the mount's max lease TTL; credentials will be capped at %s", role.TTL, maxTTL))
+		return resp, nil
+	}
+	return nil, nil
 }
 
 func (b *apigeeBackend) pathRolesDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	err := req.Storage.Delete(ctx, "roles/"+d.Get("name").(string))
+	name := d.Get("name").(string)
 
-	if err != nil {
+	lock := locksutil.LockForKey(b.roleLocks, name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := req.Storage.Delete(ctx, roleStoragePrefix+name); err != nil {
 		return nil, fmt.Errorf("error deleting role: %w", err)
 	}
-
 	return nil, nil
 }
 
-func (b *apigeeBackend) pathRolesList(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	entries, err := req.Storage.List(ctx, "roles/")
-
+func (b *apigeeBackend) pathRolesList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+	entries, err := req.Storage.List(ctx, roleStoragePrefix)
 	if err != nil {
 		return nil, err
 	}
-
 	return logical.ListResponse(entries), nil
 }
 
-func (b *apigeeBackend) pathRolesExistenceCheck(ctx context.Context, req *logical.Request, d *framework.FieldData) (bool, error) {
-	out, err := req.Storage.Get(ctx, req.Path)
-
-	if err != nil {
-		return false, fmt.Errorf("existence check failed: %w", err)
-	}
-
-	return out != nil, nil
-}
-
-func setRole(ctx context.Context, s logical.Storage, name string, apigeeRole *apigeeRole) error {
-	role, err := logical.StorageEntryJSON("roles/"+name, apigeeRole)
-
-	if err != nil {
-		return err
-	}
-
-	if role == nil {
-		return fmt.Errorf("failed to create storage entry for role")
-	}
-
-	if err := s.Put(ctx, role); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (b *apigeeBackend) getRole(ctx context.Context, s logical.Storage, name string) (*apigeeRole, error) {
+func getRole(ctx context.Context, s logical.Storage, name string) (*apigeeRole, error) {
 	if name == "" {
-		return nil, fmt.Errorf("missing role name")
+		return nil, errors.New("missing role name")
 	}
 
-	role, err := s.Get(ctx, "roles/"+name)
-
+	entry, err := s.Get(ctx, roleStoragePrefix+name)
 	if err != nil {
 		return nil, err
 	}
-
-	if role == nil {
+	if entry == nil {
 		return nil, nil
 	}
 
-	var decodedRole apigeeRole
-
-	if err := role.DecodeJSON(&decodedRole); err != nil {
-		return nil, err
+	role := &apigeeRole{}
+	if err := entry.DecodeJSON(role); err != nil {
+		return nil, fmt.Errorf("error reading role %q: %w", name, err)
 	}
-
-	return &decodedRole, nil
+	return role, nil
 }
 
-func (r *apigeeRole) toResponseData() map[string]interface{} {
-	respData := map[string]interface{}{
-		"org_name":        r.OrgName,
-		"developer_email": r.DeveloperEmail,
-		"app_name":        r.AppName,
-		"api_products":    r.ApiProducts,
-		"ttl":             r.TTL.Seconds(),
-	}
+const (
+	pathRoleHelpSynopsis    = `Manage roles that generate Apigee credentials.`
+	pathRoleHelpDescription = `
+A role identifies the Apigee developer app (org_name, developer_email,
+app_name), the API products to associate with generated credentials, and the
+credential TTL. On create, org_name, developer_email, app_name, and
+api_products are required; on update, omitted fields keep their values.
+`
 
-	return respData
-}
+	pathRoleListHelpSynopsis    = `List roles that generate Apigee credentials.`
+	pathRoleListHelpDescription = `Lists the names of all configured roles.`
+)

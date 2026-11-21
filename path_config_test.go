@@ -2,112 +2,197 @@ package secretsengine
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	apigee "github.com/bstraehle/apigee-client-go/v2"
 	"github.com/hashicorp/vault/sdk/logical"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig(t *testing.T) {
-	b, reqStorage := getTestBackend(t)
+	b, s := getTestBackend(t)
 
-	t.Run("CreateConfig", func(t *testing.T) {
-		err := testConfigCreate(t, b, reqStorage, map[string]interface{}{
-			"host":        os.Getenv(envVarApigeeHost),
-			"oauth_token": os.Getenv(envVarApigeeOAuthToken),
-			"username":    os.Getenv(envVarApigeeUsername),
-			"password":    os.Getenv(envVarApigeePassword),
-		})
-
-		assert.NoError(t, err)
+	t.Run("read before write", func(t *testing.T) {
+		require.Nil(t, request(t, b, s, logical.ReadOperation, "config", nil))
 	})
 
-	t.Run("ReadConfig", func(t *testing.T) {
-		err := testConfigRead(t, b, reqStorage, map[string]interface{}{
-			"host": os.Getenv(envVarApigeeHost),
-		})
-
-		assert.NoError(t, err)
+	t.Run("requires an auth method", func(t *testing.T) {
+		requireErrorResponse(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{}), "one of oauth_token")
 	})
 
-	t.Run("DeleteConfig", func(t *testing.T) {
-		err := testConfigDelete(t, b, reqStorage)
+	t.Run("rejects multiple auth methods", func(t *testing.T) {
+		resp := request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{
+			"oauth_token": "t", "username": "u", "password": "p",
+		})
+		requireErrorResponse(t, resp, "only one of")
+	})
 
-		assert.NoError(t, err)
+	t.Run("rejects username without password", func(t *testing.T) {
+		requireErrorResponse(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{"username": "u"}), "set together")
+	})
+
+	t.Run("rejects invalid host", func(t *testing.T) {
+		resp := request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{"oauth_token": "t", "host": "not-a-url"})
+		requireErrorResponse(t, resp, "invalid host")
+	})
+
+	t.Run("rejects invalid service account credentials", func(t *testing.T) {
+		resp := request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{"credentials": `{"type":"authorized_user"}`})
+		requireErrorResponse(t, resp, "invalid service account credentials")
+	})
+
+	t.Run("oauth token defaults host and hides secrets", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{"oauth_token": "secret-token"}))
+
+		resp := request(t, b, s, logical.ReadOperation, "config", nil)
+		require.Equal(t, map[string]interface{}{"host": apigee.DefaultHost, "auth_type": authTypeOAuthToken}, resp.Data)
+	})
+
+	t.Run("switching to basic auth clears the token", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{
+			"host": "https://api.enterprise.apigee.com", "username": "u", "password": "p",
+		}))
+		config, err := getConfig(t.Context(), s)
+		require.NoError(t, err)
+		require.Equal(t, &apigeeConfig{Host: "https://api.enterprise.apigee.com", Username: "u", Password: "p"}, config)
+	})
+
+	t.Run("partial update keeps other fields", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"password": "p2"}))
+		config, err := getConfig(t.Context(), s)
+		require.NoError(t, err)
+		require.Equal(t, &apigeeConfig{Host: "https://api.enterprise.apigee.com", Username: "u", Password: "p2"}, config)
+
+		resp := request(t, b, s, logical.ReadOperation, "config", nil)
+		require.Equal(t, authTypeBasic, resp.Data["auth_type"])
+		require.NotContains(t, resp.Data, "password")
+		require.NotContains(t, resp.Data, "username")
+	})
+
+	t.Run("legacy config without host uses default", func(t *testing.T) {
+		entry, err := logical.StorageEntryJSON(configStoragePath, map[string]string{"oauth_token": "t"})
+		require.NoError(t, err)
+		require.NoError(t, s.Put(t.Context(), entry))
+		config, err := getConfig(t.Context(), s)
+		require.NoError(t, err)
+		require.Equal(t, apigee.DefaultHost, config.Host)
+	})
+
+	t.Run("legacy config with token and stale basic auth uses the token", func(t *testing.T) {
+		entry, err := logical.StorageEntryJSON(configStoragePath, map[string]string{
+			"host": "https://apigee.googleapis.com", "oauth_token": "t", "username": "stale", "password": "stale",
+		})
+		require.NoError(t, err)
+		require.NoError(t, s.Put(t.Context(), entry))
+
+		config, err := getConfig(t.Context(), s)
+		require.NoError(t, err)
+		require.Equal(t, &apigeeConfig{Host: "https://apigee.googleapis.com", OAuthToken: "t"}, config)
+		_, err = config.newClient()
+		require.NoError(t, err)
+		require.Equal(t, authTypeOAuthToken, request(t, b, s, logical.ReadOperation, "config", nil).Data["auth_type"])
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		requireOK(t, request(t, b, s, logical.DeleteOperation, "config", nil))
+		require.Nil(t, request(t, b, s, logical.ReadOperation, "config", nil))
 	})
 }
 
-func testConfigCreate(t *testing.T, b logical.Backend, s logical.Storage, d map[string]interface{}) error {
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.CreateOperation,
-		Path:      configStoragePath,
-		Data:      d,
-		Storage:   s,
+func serviceAccountJSON(t *testing.T, tokenURI string, privateKey string) string {
+	t.Helper()
+	if privateKey == "" {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		require.NoError(t, err)
+		privateKey = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: must(x509.MarshalPKCS8PrivateKey(key))}))
+	}
+	sa, err := json.Marshal(map[string]string{
+		"type":           "service_account",
+		"project_id":     "test",
+		"private_key_id": "1",
+		"private_key":    privateKey,
+		"client_email":   "vault@test.iam.gserviceaccount.com",
+		"token_uri":      tokenURI,
 	})
-
-	if err != nil {
-		return err
-	}
-
-	if resp != nil && resp.IsError() {
-		return resp.Error()
-	}
-
-	return nil
+	require.NoError(t, err)
+	return string(sa)
 }
 
-func testConfigRead(t *testing.T, b logical.Backend, s logical.Storage, expected map[string]interface{}) error {
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.ReadOperation,
-		Path:      configStoragePath,
-		Storage:   s,
-	})
+func TestServiceAccountInvalidKeyKeepsConfig(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	configure(t, b, s, f)
 
-	if err != nil {
-		return err
-	}
+	badKey := "-----BEGIN PRIVATE KEY-----\nZGFtYWdlZA==\n-----END PRIVATE KEY-----\n"
+	resp := request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"credentials": serviceAccountJSON(t, f.URL+"/token", badKey)})
+	requireErrorResponse(t, resp, "private_key")
 
-	if resp == nil && expected == nil {
-		return nil
-	}
+	resp = request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"credentials": `{"type":"service_account","private_key":"x"}`})
+	requireErrorResponse(t, resp, "client_email and private_key are required")
 
-	if resp.IsError() {
-		return resp.Error()
-	}
+	require.Equal(t, authTypeOAuthToken, request(t, b, s, logical.ReadOperation, "config", nil).Data["auth_type"], "rejected update must keep the working config")
+}
 
-	if len(expected) != len(resp.Data) {
-		return fmt.Errorf("read data mismatch (expected %d values, got %d)", len(expected), len(resp.Data))
-	}
+func TestServiceAccountTokenTimeout(t *testing.T) {
+	old := tokenHTTPTimeout
+	tokenHTTPTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { tokenHTTPTimeout = old })
 
-	for k, expectedV := range expected {
-		actualV, ok := resp.Data[k]
-
-		if !ok {
-			return fmt.Errorf(`expected data["%s"] = %v but was not included in read output"`, k, expectedV)
-		} else if expectedV != actualV {
-			return fmt.Errorf(`expected data["%s"] = %v, instead got %v"`, k, expectedV, actualV)
+	release := make(chan struct{})
+	stalled := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
 		}
-	}
+	}))
+	t.Cleanup(func() { close(release); stalled.Close() })
 
-	return nil
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	requireOK(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{
+		"host":        f.URL,
+		"credentials": serviceAccountJSON(t, stalled.URL, ""),
+	}))
+	writeRole(t, b, s, "test", nil)
+
+	start := time.Now()
+	_, err := b.HandleRequest(context.Background(), &logical.Request{Operation: logical.ReadOperation, Path: "creds/test", Storage: s})
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 5*time.Second, "token exchange must be bounded")
 }
 
-func testConfigDelete(t *testing.T, b logical.Backend, s logical.Storage) error {
-	resp, err := b.HandleRequest(context.Background(), &logical.Request{
-		Operation: logical.DeleteOperation,
-		Path:      configStoragePath,
-		Storage:   s,
-	})
+func TestServiceAccountCredentials(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	sa := serviceAccountJSON(t, f.URL+"/token", "")
 
+	requireOK(t, request(t, b, s, logical.CreateOperation, "config", map[string]interface{}{
+		"host":        f.URL,
+		"credentials": sa,
+	}))
+	require.Equal(t, authTypeServiceAccount, request(t, b, s, logical.ReadOperation, "config", nil).Data["auth_type"])
+
+	writeRole(t, b, s, "test", nil)
+	request(t, b, s, logical.ReadOperation, "creds/test", nil)
+	request(t, b, s, logical.ReadOperation, "creds/test", nil)
+
+	require.Equal(t, 1, f.tokenIssued, "access token should be cached and reused")
+	for _, a := range f.auth {
+		require.Equal(t, "Bearer sa-token", a)
+	}
+}
+
+func must[T any](v T, err error) T {
 	if err != nil {
-		return err
+		panic(err)
 	}
-
-	if resp != nil && resp.IsError() {
-		return resp.Error()
-	}
-
-	return nil
+	return v
 }

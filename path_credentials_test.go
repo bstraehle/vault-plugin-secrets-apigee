@@ -2,63 +2,166 @@ package secretsengine
 
 import (
 	"context"
-	"os"
+	"encoding/base64"
+	"sync"
 	"testing"
 	"time"
 
-	log "github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/vault/sdk/helper/logging"
 	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/stretchr/testify/require"
 )
 
-func newTestEnv() (*testEnv, error) {
-	ctx := context.Background()
+func TestCredentialsNotConfigured(t *testing.T) {
+	b, s := getTestBackend(t)
+	writeRole(t, b, s, "test", nil)
 
-	defaultLease, _ := time.ParseDuration("1d")
-	maxLease, _ := time.ParseDuration("1d")
-
-	conf := &logical.BackendConfig{
-		System: &logical.StaticSystemView{
-			DefaultLeaseTTLVal: defaultLease,
-			MaxLeaseTTLVal:     maxLease,
-		},
-		Logger: logging.NewVaultLogger(log.Debug),
-	}
-
-	b, err := Factory(ctx, conf)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &testEnv{
-		Host:       os.Getenv(envVarApigeeHost),
-		OAuthToken: os.Getenv(envVarApigeeOAuthToken),
-		Username:   os.Getenv(envVarApigeeUsername),
-		Password:   os.Getenv(envVarApigeePassword),
-
-		OrgName:        os.Getenv(envVarApigeeOrgName),
-		DeveloperEmail: os.Getenv(envVarApigeeDeveloperEmail),
-		AppName:        os.Getenv(envVarApigeeAppName),
-		ApiProducts:    os.Getenv(envVarApigeeApiProducts),
-
-		Backend: b,
-		Context: ctx,
-		Storage: &logical.InmemStorage{},
-	}, nil
+	_, err := b.HandleRequest(context.Background(), &logical.Request{Operation: logical.ReadOperation, Path: "creds/test", Storage: s})
+	require.ErrorIs(t, err, errNotConfigured)
 }
 
-func TestCreds(t *testing.T) {
-	testEnv, err := newTestEnv()
+func TestCredentialsUnknownRole(t *testing.T) {
+	b, s := getTestBackend(t)
+	configure(t, b, s, newFakeApigee(t))
+	requireErrorResponse(t, request(t, b, s, logical.ReadOperation, "creds/missing", nil), "unknown role")
+}
 
-	if err != nil {
-		t.Fatal(err)
+func TestCredentialsLifecycle(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	configure(t, b, s, f)
+	writeRole(t, b, s, "test", map[string]interface{}{"ttl": "30m"})
+
+	resp := request(t, b, s, logical.ReadOperation, "creds/test", nil)
+	requireOK(t, resp)
+
+	key := resp.Data["key"].(string)
+	require.Equal(t, "key-1", key)
+	require.Equal(t, "secret-of-key-1", resp.Data["secret"])
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("key-1:secret-of-key-1")), resp.Data["credentials"])
+	require.Equal(t, []string{"product-a", "product-b"}, resp.Data["api_products"])
+	expiresAt, err := time.Parse(time.RFC3339, resp.Data["expires_at"].(string))
+	require.NoError(t, err)
+	require.WithinDuration(t, time.Now().Add(30*time.Minute+apigeeExpiryGrace), expiresAt, 5*time.Second)
+
+	require.Equal(t, 30*time.Minute, resp.Secret.TTL)
+	require.False(t, resp.Secret.Renewable)
+	require.Equal(t, "1860000", f.lastPost()["keyExpiresIn"], "Apigee expiry should outlast the lease by the grace period")
+	require.Equal(t, "Bearer "+testToken, f.auth[0])
+
+	require.NotContains(t, resp.Secret.InternalData, "secret", "consumer secret must not be persisted with the lease")
+	require.NotContains(t, resp.Secret.InternalData, "credentials")
+	require.Equal(t, key, resp.Secret.InternalData["key"])
+	require.Equal(t, f.URL, resp.Secret.InternalData["host"])
+
+	revoke := func() (*logical.Response, error) {
+		return b.HandleRequest(context.Background(), &logical.Request{
+			Operation: logical.RevokeOperation,
+			Secret:    resp.Secret,
+			Storage:   s,
+		})
 	}
 
-	t.Run("CreateConfig", testEnv.CreateConfig)
-	t.Run("CreateRole", testEnv.CreateRole)
-	t.Run("ReadCred1", testEnv.ReadCred)
-	t.Run("ReadCred2", testEnv.ReadCred)
-	t.Run("ReadCred3", testEnv.ReadCred)
-	t.Run("DeleteCreds", testEnv.DeleteCreds)
+	_, err = revoke()
+	require.NoError(t, err)
+	require.False(t, f.hasKey(key), "key should be deleted from Apigee")
+	require.True(t, f.hasKey("preexisting"), "other keys must be untouched")
+
+	_, err = revoke()
+	require.NoError(t, err, "revoking an already deleted key should succeed")
+}
+
+func TestCredentialsTTL(t *testing.T) {
+	b, s := getTestBackend(t)
+	configure(t, b, s, newFakeApigee(t))
+
+	writeRole(t, b, s, "default", nil)
+	require.Equal(t, testDefaultTTL, request(t, b, s, logical.ReadOperation, "creds/default", nil).Secret.TTL)
+
+	writeRole(t, b, s, "long", map[string]interface{}{"ttl": "72h"})
+	require.Equal(t, testMaxTTL, request(t, b, s, logical.ReadOperation, "creds/long", nil).Secret.TTL)
+}
+
+func TestCredentialsConcurrent(t *testing.T) {
+	b, s := getTestBackend(t)
+	configure(t, b, s, newFakeApigee(t))
+	writeRole(t, b, s, "test", nil)
+
+	const n = 10
+	keys := make(chan string, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			resp, err := b.HandleRequest(context.Background(), &logical.Request{Operation: logical.ReadOperation, Path: "creds/test", Storage: s})
+			if err == nil && resp != nil && !resp.IsError() {
+				keys <- resp.Data["key"].(string)
+			}
+		})
+	}
+	wg.Wait()
+	close(keys)
+
+	seen := map[string]bool{}
+	for k := range keys {
+		require.False(t, seen[k], "key %s handed out twice", k)
+		seen[k] = true
+	}
+	require.Len(t, seen, n)
+}
+
+func TestRevokeAfterHostChange(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	configure(t, b, s, f)
+	writeRole(t, b, s, "test", nil)
+	resp := request(t, b, s, logical.ReadOperation, "creds/test", nil)
+	key := resp.Data["key"].(string)
+
+	revoke := func() error {
+		_, err := b.HandleRequest(context.Background(), &logical.Request{Operation: logical.RevokeOperation, Secret: resp.Secret, Storage: s})
+		return err
+	}
+
+	other := newFakeApigee(t)
+	requireOK(t, request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"host": other.URL}))
+	require.ErrorContains(t, revoke(), "restore the host", "a 404 from a different Apigee must not count as revoked")
+	require.True(t, f.hasKey(key))
+
+	requireOK(t, request(t, b, s, logical.UpdateOperation, "config", map[string]interface{}{"host": f.URL}))
+	require.NoError(t, revoke())
+	require.False(t, f.hasKey(key))
+}
+
+func TestRevokeLegacyLeaseWithoutHost(t *testing.T) {
+	b, s := getTestBackend(t)
+	f := newFakeApigee(t)
+	configure(t, b, s, f)
+
+	_, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.RevokeOperation,
+		Storage:   s,
+		Secret: &logical.Secret{InternalData: map[string]interface{}{
+			"secret_type":     secretCredentialsType,
+			"org_name":        testOrg,
+			"developer_email": testDev,
+			"app_name":        testApp,
+			"api_products":    `["product-a"]`,
+			"key":             "preexisting",
+			"secret":          "legacy leases stored the secret",
+		}},
+	})
+	require.NoError(t, err)
+	require.False(t, f.hasKey("preexisting"))
+}
+
+func TestRevokeMissingInternalData(t *testing.T) {
+	b, s := getTestBackend(t)
+	_, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.RevokeOperation,
+		Storage:   s,
+		Secret: &logical.Secret{InternalData: map[string]interface{}{
+			"secret_type": secretCredentialsType,
+			"org_name":    testOrg,
+		}},
+	})
+	require.ErrorContains(t, err, "missing developer_email")
 }
